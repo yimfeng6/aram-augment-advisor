@@ -1,0 +1,15 @@
+# HTTP 请求（爬虫、本地数据接口）
+requests>=2.31
+
+# 图像处理：找卡片、裁图标、模板匹配
+opencv-python>=4.8
+numpy>=1.24
+
+# 屏幕截图（Windows）
+mss>=9.0
+
+# 读取游戏窗口位置（Windows 专用）
+pywin32>=306
+
+# 中文 OCR：认符文名
+rapidocr-onnxruntime>=1.2

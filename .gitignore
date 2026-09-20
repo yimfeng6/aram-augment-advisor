@@ -1,0 +1,33 @@
+# 注意：.gitignore 不支持行尾注释！
+# 「raw/   # 说明」这种写法会让整个字符串变成模式，什么都匹配不到。
+# 注释必须单独占一行。
+
+# ============ 抓下来的数据 ============
+# 体积大（raw 约 99 MB），而且都能用脚本重新生成
+raw/
+aramkit.db
+icons/
+
+# ============ 游戏截图 ============
+# 体积大（几十 MB），而且画面里有召唤师 ID（自己的和同局玩家的）
+shots/
+tests/
+shot.png
+
+# ============ 调试产物 ============
+debug/
+debug_augments.html
+display_log.txt
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ============ 编辑器 / 系统 ============
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
