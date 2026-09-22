@@ -7,11 +7,12 @@
     直接读嵌套 JSON 也能work，但每次查询都要遍历 21,647 条记录。
     建库之后，一次 SQL 查询就能拿到结果。
 
-三张表的设计：
-    champions         英雄词表        173 行
-    augments          符文词表        216 行
-    champion_augment  英雄×符文交叉  21,647 行
-    meta              数据来源信息
+五张表：
+    champions                英雄词表            173 行
+    augments                 符文词表            216 行
+    champion_augment         英雄×符文交叉      21,647 行
+    champion_augment_combo   符文两两组合        1,730 行
+    meta                     数据来源信息
 
 为什么要拆三张表，不用一张大表？
     一张大表的话，每一行都要重复存一次英雄名和符文名——

@@ -67,6 +67,11 @@ def get_json(url: str) -> dict:
                 raise
             time.sleep(attempt * 3)  # 退避重试：越失败等得越久
 
+    # 循环体能保证要么 return 要么 raise，这里理论上到不了。
+    # 留着是为了防「把 RETRIES 改成 0」这种改动 —— 那样循环一次都不执行，
+    # 函数会静默返回 None，调用方拿到 None 还会继续往下跑。
+    raise RuntimeError(f"重试次数配置有误：RETRIES={RETRIES}")
+
 
 def save_json(path: Path, data) -> None:
     """写 JSON 到文件。encoding 必须显式指定，否则中文会乱码。"""

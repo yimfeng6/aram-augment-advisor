@@ -7,9 +7,9 @@
     「升级：耀光」改成了「伤害」，就是靠这个测试发现的。
 
 样本哪来的
-    tests/fixtures/ 里的图片是从真实游戏截图裁出来的（涂黑了含召唤师 ID
-    的区域）。生成方式见 tests/make_fixtures.py，那个脚本也记录了为什么
-    是「涂黑」而不是「裁剪」。
+    tests/fixtures/ 里的图片是从真实游戏截图处理来的 —— **涂黑**了含召唤师
+    ID 的区域，而不是裁掉。「涂黑」和「裁剪」的区别很关键（裁掉会改变画面
+    几何，把检测参数带偏），生成脚本 tests/make_fixtures.py 里记了完整经过。
 
 用法
     python selftest.py
@@ -56,7 +56,7 @@ def main():
 
         got = [c.augment_id for c in recognizer.recognize(img)]
         cards_total += len(expected)
-        cards_ok += sum(1 for a, b in zip(got, expected) if a == b)
+        cards_ok += sum(1 for a, b in zip(got, expected, strict=False) if a == b)
 
         if got == expected:
             passed += 1

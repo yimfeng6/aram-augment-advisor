@@ -1,28 +1,43 @@
-"""步骤 4：从一张 1920x1080 的截图里认出三张卡片上的符文。
+"""步骤 4：从游戏截图里认出三张卡片上的符文。
 
-两级识别 —— 为什么不能只用一级：
+怎么认的（四步）：
 
-    只用图标：216 个符文里有 24 组共用图标（同一系列、升级版、
-             「所选技能」类），光看图标根本区分不了。
-             实测：1061 回力OK镖 和 2091 无尽大杀四方 是同一张图。
+    1. detect_cards()              在画面里找三张卡片。每帧现找，
+                                   所以换分辨率、换窗口大小都不用改代码。
+    2. card_looks_like_augment()   确认卡面是海克斯卡 —— 挡掉英雄选择界面
+                                   那种「长得像但不是」的误判。
+    3. OCR 整张卡片                取字号最大的那一行当名称（名称的字号
+                                   明显大于类别标签和描述）。
+    4. 在封闭词表里模糊匹配         词表只有 216 个合法名字，所以 OCR 读错
+                                   一两个笔画（婪/欲 之类）也能吸附到对的。
 
-    只用 OCR：置信度只有 0.66~0.83，直接拿它在 216 个名字里搜，
-             错一个笔画就可能匹配到别的符文。
+    最后一道关：三张里至少两张认得出来，否则整帧丢弃。
 
-    两级合起来：图标先把范围压到 2~9 个，OCR 只需要在这几个里挑。
-             错误率从「1/216」降到「1/9」，而且是在已知集合里选，
-             还可以用「像不像」的分数兜底。
+关于「图标匹配」—— 设计过，量完之后停用了
+    原本是「图标粗筛 + OCR 精筛」两级，指望两个信号互相验证。
+    量完之后发现图标那一半根本不成立：
 
-这就是为什么工程上常说「不要指望单一信号」——
-每个信号都不可靠，但合起来就可靠了。
+        216 个符文里有 24 组共用同一个图标
+        （同一系列、升级版、「所选英雄技能」类各有一个通用图标），
+        所以纯图标匹配原理上就不可能唯一识别。
+        实测第一名正确率：19/93 = 20.4%。
+
+    往一个 93/93 正确的系统里加一个 80% 错误的信号，只会把结果带偏。
+    所以现在是纯 OCR + 封闭词表，图标那部分代码保留但默认关闭，
+    详见 USE_ICON 的注释。
+
+    这个反省写下来是因为：第一版文档里信誓旦旦写着「不要指望单一信号，
+    每个信号都不可靠但合起来就可靠了」—— 那句话在**没量之前**听起来
+    很有道理，量完之后是错的。
 
 作为模块使用：
     from recognize import Recognizer
     r = Recognizer()
-    results = r.recognize(img)      # -> [Card, Card, Card]
+    cards = r.recognize(img)        # -> [Card, ...]
+                                    # 空列表表示「这不是海克斯选择界面」
 
 单独运行（做自检）：
-    python recognize.py
+    python recognize.py [图片或目录]
 """
 
 import sqlite3
@@ -50,9 +65,10 @@ DB_PATH = Path("aramkit.db")
 PAD_X_FRAC = 0.172      # 图标区域左右内缩，避开卡片金边
 PAD_TOP_FRAC = 0.085
 ICON_BAND = 0.45        # 图标只出现在卡片上部这么高的范围内
-NAME_TOP_FRAC = 0.426   # 名称文字在卡片内的位置
-NAME_BOTTOM_FRAC = 0.540
-NAME_HALF_W_FRAC = 0.4375
+
+# 这里原来还有三个常量：NAME_TOP_FRAC / NAME_BOTTOM_FRAC / NAME_HALF_W_FRAC，
+# 用来按比例裁出「名称区域」。后来改成「整张卡片喂给 OCR，取字号最大的行」，
+# 那套按比例裁剪的做法整个删掉了，常量却留了下来 —— 典型的改动没清干净。
 
 GAME_THRESH = 70        # 游戏内图标分割阈值（含灰色部分）
 ALPHA_THRESH = 10       # webp alpha 阈值
@@ -535,10 +551,12 @@ def _print_detail(r: "Recognizer", c: Card):
     print(f"    判定依据  {c.method}")
     print(f"    OCR 读到  「{c.ocr_text}」   相似度 {c.ocr_sim:.3f}"
           f"   -> {r.names.get(c.ocr_best, '?') if c.ocr_best else '?'}")
-    print(f"    图标给出  {r.names.get(c.icon_best, '?') if c.icon_best else '?'}"
-          f"   分数 {c.icon_score:.4f}")
-    if c.icon_group:
-        print(f"    图标并列  {[r.names.get(a) for a in c.icon_group]}")
+    # 图标那几行只在启用时才打印 —— 关掉的时候会打印一堆 "?"，看着像出错了
+    if USE_ICON:
+        print(f"    图标给出  {r.names.get(c.icon_best, '?') if c.icon_best else '?'}"
+              f"   分数 {c.icon_score:.4f}")
+        if c.icon_group:
+            print(f"    图标并列  {[r.names.get(a) for a in c.icon_group]}")
 
 
 def main():
@@ -549,10 +567,7 @@ def main():
     target = Path(sys.argv[1]) if len(sys.argv) > 1 else (
         Path("shots") if Path("shots").is_dir() else Path("shot.png"))
 
-    if target.is_dir():
-        files = sorted(target.glob("*.png"))
-    else:
-        files = [target]
+    files = sorted(target.glob("*.png")) if target.is_dir() else [target]
 
     if not files:
         print(f"{target} 下没找到图片")

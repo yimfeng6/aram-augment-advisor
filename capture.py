@@ -1,134 +1,75 @@
-"""步骤 3：从游戏窗口截图。
+"""步骤 3：从游戏窗口截图，存成一张 PNG。
 
-目标：能在任意时刻把游戏窗口的画面存成一张 PNG。
+目标：能在任意时刻把游戏窗口的画面存下来。
 
 这一步看着简单，但有两个真问题：
 
 【问题 1】窗口 vs 全屏
-    独占全屏模式下，普通的截图 API 会截到全黑画面，必须用 DXGI 桌面复制。
-    你是窗口模式，所以没这个问题。
+    独占全屏（exclusive fullscreen）下，普通截图 API 会截到全黑画面，
+    得改用 DXGI 桌面复制。
+    实测这款游戏是「全屏」模式，但走的是桌面合成，mss 能正常截到 ——
+    所以暂时不需要特殊处理。真遇到全黑画面再换方案。
 
-【问题 2】DPI 缩放 —— 2K 显示器上最容易踩的坑
-    如果 Windows 的显示缩放不是 100%（2K 屏上很常见），
-    Python 进程默认是「DPI 不感知」的：
-        · 窗口 API 返回的坐标是「缩放后」的逻辑坐标
-        · 截图 API 拿到的却是「缩放前」的物理像素
-    两套坐标系对不上，结果就是截图位置整体偏移。
-    解法是在程序最开始（任何窗口 API 调用之前）声明 DPI 感知。
+【问题 2】DPI 缩放
+    如果 Windows 的显示缩放不是 100%，Python 进程默认是「DPI 不感知」的：
+    窗口 API 返回「缩放后」的逻辑坐标，截图 API 拿到的却是物理像素，
+    两套坐标系对不上，截出来的位置会整体偏移 —— 而且不报错。
+    解法是在任何窗口 API 调用之前声明 DPI 感知。
+
+窗口查找、DPI 声明、文件命名都在 wincap.py 里，和 watch.py 共用。
 
 运行：先打开游戏，进到「海克斯选择」界面，然后
     python capture.py
 """
 
-import ctypes
 import sys
 import time
-from pathlib import Path
 
-import mss
 import mss.tools
-import win32gui
 
-# 截图统一存到 shots/ 里，按序号命名，不会互相覆盖
-SHOT_DIR = Path("shots")
-KEYWORD = "league"          # 窗口标题里包含这个词（不区分大小写）
+from wincap import (MSS_CLASS, WINDOW_KEYWORD, enable_dpi_awareness,
+                    find_game_rect, next_shot_path)
 
-
-def next_shot_path() -> Path:
-    """下一个可用的文件名：shots/shot_001.png、shot_002.png ..."""
-    SHOT_DIR.mkdir(exist_ok=True)
-    n = len(list(SHOT_DIR.glob("shot_*.png"))) + 1
-    return SHOT_DIR / f"shot_{n:03d}.png"
-
-# 运行后先等几秒再截图，给你时间切回游戏窗口。
-# 不这么做的话，终端会挡住游戏，截出来的是终端自己。
-DELAY = 6
-
-
-def enable_dpi_awareness() -> None:
-    """声明本进程是 DPI 感知的。
-
-    必须在任何窗口 API 调用之前执行，否则不生效。
-    没有这一句，在缩放不是 100% 的显示器上，截图会整体偏移。
-    """
-    try:
-        # 2 = PROCESS_PER_MONITOR_DPI_AWARE，Win8.1+
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:
-        # 老系统兜底
-        ctypes.windll.user32.SetProcessDPIAware()
-
-
-def list_windows(keyword: str) -> list[tuple[int, str]]:
-    """列出所有可见窗口里，标题包含 keyword 的。"""
-    found = []
-
-    def callback(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            title = win32gui.GetWindowText(hwnd)
-            if title and keyword in title.lower():
-                found.append((hwnd, title))
-        return True
-
-    win32gui.EnumWindows(callback, None)
-    return found
-
-
-def client_rect(hwnd: int) -> tuple[int, int, int, int]:
-    """窗口「客户区」在屏幕上的位置和大小。
-
-    客户区 = 不含标题栏和边框的那块区域，也就是游戏画面本身。
-    用整窗口的 rect 会把标题栏也算进去，后面裁卡片时坐标就全错了。
-    """
-    left, top, right, bottom = win32gui.GetClientRect(hwnd)
-    screen_x, screen_y = win32gui.ClientToScreen(hwnd, (left, top))
-    return screen_x, screen_y, right - left, bottom - top
+DELAY = 6       # 运行后等几秒再截图，给你时间切回游戏窗口
 
 
 def main() -> int:
     enable_dpi_awareness()
 
     print(f"\n{DELAY} 秒后自动截图。现在马上切回游戏窗口（Alt+Tab），")
-    print("让海克斯选择界面完整显示出来，别让终端挡住游戏。\n")
+    print("让画面完整显示出来，别让终端挡住游戏。\n")
     for i in range(DELAY, 0, -1):
         print(f"  {i}...", end="", flush=True)
         time.sleep(1)
     print("  拍！\n")
 
-    with mss.mss() as sct:
+    with MSS_CLASS() as sct:
         print("显示器:")
         for i, mon in enumerate(sct.monitors):
             tag = "（虚拟桌面，所有显示器合并）" if i == 0 else ""
             print(f"  [{i}] {mon['width']}x{mon['height']} "
                   f"@ ({mon['left']}, {mon['top']}) {tag}")
 
-        wins = list_windows(KEYWORD)
-        if not wins:
-            print(f"\n没找到标题含 '{KEYWORD}' 的窗口。")
+        rect = find_game_rect(WINDOW_KEYWORD)
+        if rect is None:
+            print(f"\n没找到标题含 '{WINDOW_KEYWORD}' 的窗口。")
             print("确认游戏已打开，且不是最小化状态。")
             return 1
 
-        print(f"\n找到 {len(wins)} 个候选窗口:")
-        for hwnd, title in wins:
-            sx, sy, w, h = client_rect(hwnd)
-            print(f"  [{hwnd}] {title}")
-            print(f"          客户区 {w} x {h} @ ({sx}, {sy})")
-
-        # 选客户区面积最大的那个 —— 游戏窗口总是最大的
-        hwnd, title = max(wins, key=lambda t: client_rect(t[0])[2] * client_rect(t[0])[3])
-        sx, sy, w, h = client_rect(hwnd)
-        print(f"\n选中的窗口: {title}")
-
+        sx, sy, w, h = rect
+        print(f"\n游戏窗口客户区 {w} x {h} @ ({sx}, {sy})")
         shot = sct.grab({"left": sx, "top": sy, "width": w, "height": h})
 
     out = next_shot_path()
     mss.tools.to_png(shot.rgb, shot.size, output=str(out))
     print(f"\n已保存 {out.resolve()}")
 
-    # ---------- 自检 ----------
+    # ---------- 自检：当场判断这张图是不是能用 ----------
     print(f"\n尺寸      {w} x {h}")
     print(f"宽高比    {w / h:.4f}   (16:9 = {16 / 9:.4f})")
 
+    # 黑屏是截图最典型的失败模式，而且文件会正常生成、大小正常，
+    # 打开才发现是黑的。与其等人发现，不如程序自己先看一眼。
     pixels = shot.rgb
     brightness = sum(pixels) / len(pixels)
     print(f"平均亮度  {brightness:.1f} / 255")

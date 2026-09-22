@@ -78,9 +78,11 @@ pip install -r requirements.txt
 
 ```bash
 python crawler.py          # 抓符文/英雄胜率，约 5 分钟，99 MB
-python download_icons.py   # 抓 216 个符文图标，约 2 分钟
 python build_db.py         # 整理成 SQLite
 ```
+
+`python download_icons.py`（抓 216 个符文图标）是**可选的，不跑也能用** ——
+图标只被「图标匹配」用到，而那个功能实测准确率 20.4%，已经默认关闭。
 
 ### 之后：开用
 
@@ -141,10 +143,11 @@ watch.py              主循环：截图 → 识别 → 查库 → 打印建议�
 recognize.py          识别：找卡片 + OCR + 词表匹配
 advise.py             推荐：查库、排序、组合加成
 liveapi.py            Riot 官方本地接口，拿英雄名和等级
+wincap.py             Windows 截图/窗口的公共部分（watch 和 capture 共用）
 
 crawler.py            爬虫：aramkit → raw/*.json
 build_db.py           建库：raw/*.json → SQLite
-download_icons.py     下载符文图标
+download_icons.py     下载符文图标（可选，图标匹配已停用）
 
 selftest.py           跑测试样本，报告识别准确率
 tests/make_fixtures.py 从游戏截图生成测试样本（涂掉含召唤师 ID 的区域）

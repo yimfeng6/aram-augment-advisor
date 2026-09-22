@@ -93,9 +93,9 @@ def _combo_lookup(conn, champion_id: int, candidates: list, picked: list) -> dic
                 "WHERE champion_id = ? AND augment_a = ? AND augment_b = ?",
                 (champion_id, a, b),
             ).fetchone()
-            if row and row[0] is not None:
-                if best is None or (row[1] or 0) > (best[2] or 0):
-                    best = (p, row[0], row[1], row[2])
+            if (row and row[0] is not None
+                    and (best is None or (row[1] or 0) > (best[2] or 0))):
+                best = (p, row[0], row[1], row[2])
         if best:
             out[aid] = best
     return out

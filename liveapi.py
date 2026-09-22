@@ -14,8 +14,8 @@
     2. 拿英雄 —— 推荐必须知道你在玩哪个英雄。
        用接口拿，比识别左下角头像靠谱得多。
 
-    3. 拿等级 —— 海克斯在开局和 7/11/15 级出现，
-       等级能反推出当前是第几阶段，可以用来交叉验证识别结果。
+    3. 拿等级 —— 海克斯在开局和 7/11/15 级出现，等级能反推出当前是第几阶段。
+       （等级的「换算」在 advise.stage_from_level；这里只负责把原始值取出来。）
 
 接口返回的字段（实测）：
     activePlayer.summonerName      "召唤师名#12345"
@@ -75,25 +75,6 @@ def get_me(data: dict) -> dict | None:
     return None
 
 
-def stage_from_level(level: int | None) -> int | None:
-    """等级 → 海克斯阶段。
-
-    海克斯在开局和 7/11/15 级时出现，对应数据里的阶段 1~4。
-    注意这是从「等级」倒推的，不一定是精确的当前阶段
-    （比如 7 级选完之前，level 可能已经是 7），所以只用来做交叉验证，
-    不要用它去过滤候选。
-    """
-    if level is None:
-        return None
-    if level >= 15:
-        return 4
-    if level >= 11:
-        return 3
-    if level >= 7:
-        return 2
-    return 1
-
-
-def is_in_game() -> bool:
-    """当前是否在某个对局里。"""
-    return fetch_all() is not None
+# 「等级 → 海克斯阶段」的换算在 advise.py 里（stage_from_level）。
+# 这里原来也写了一份，是重复实现，已删 —— 判断依据是它和 advise 里那份
+# 一个字都不差，而 watch.py 用的是 advise 那份。

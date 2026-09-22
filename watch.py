@@ -1,81 +1,43 @@
-"""盯着屏幕，等海克斯选择界面出现就自动识别并存图。
+"""盯着屏幕，等海克斯选择界面出现就自动识别、给建议、顺手存图。
 
-为什么需要这个？
-    1. 攒测试样本 —— 手动 Alt+Tab 十几次太痛苦，而且打游戏时分心
-    2. 这就是最终产品的雏形 —— 真正用的时候就是这个流程：
-       发现界面 → 识别 → 给建议
+**这个就是成品** —— 打游戏时开着它，出现海克斯选择界面就会打印该选哪个。
 
-怎么判断「现在是不是海克斯选择界面」？
-    交给 recognize.detect_cards()：每帧现找画面里那三张亮边框卡片。
-    一开始是写死坐标的，但我的游戏窗口从 1920x1080 变成 2000x1125 之后
-    全废了 —— 所以改成每帧现找，分辨率随便变。
+它还会把画面存进 shots/。这不是副作用，是顺带的攒样本：
+手动 Alt+Tab 十几次太痛苦，于是让它自己存，回头能拿来跑 selftest。
+
+「现在是不是海克斯选择界面」由四道关一起判断，全在 recognize.recognize()
+里（空列表 = 不是这个界面）：
+
+    1. 找卡片       每帧现找三张亮边框卡片，不依赖分辨率
+    2. 内容检查     卡面必须是深色底（挡掉英雄选择界面的彩色原画）
+    3. 对局门禁     本地接口连得上 = 在对局中（挡掉大厅、英雄选择）
+    4. 关键词挡板   卡面出现「锻造器」→ 是属性锻造器界面，不是符文
+
+    最后还有一道置信度门槛：三张里至少两张命中词表。
 
 运行：
     python watch.py           一直盯着，Ctrl+C 退出
     python watch.py 600       盯 10 分钟后自动退出
 """
 
-import ctypes
 import sys
 import time
 from pathlib import Path
 
 import cv2
-import mss
 import numpy as np
-import win32gui
 
 import advise
 import liveapi
 from recognize import Recognizer
+from wincap import (MSS_CLASS, WINDOW_KEYWORD, enable_dpi_awareness,
+                    find_game_rect, next_shot_path)
 
-SHOT_DIR = Path("shots")
 PICKED_FILE = Path("picked.txt")     # 手动记录已选的符文 id，见 read_picked()
-KEYWORD = "league"
 
 POLL = 1.0          # 每隔多久看一次屏幕（秒）
 ABSENT_RESET = 5    # 连续这么多帧看不到卡片，就认为离开了这个界面
 
-SHOT_DIR.mkdir(exist_ok=True)
-
-# mss 新版把 mss.mss 改名为 mss.MSS，但旧版没有。两种都兼容。
-MSS_CLASS = getattr(mss, "MSS", None) or mss.mss
-
-
-def enable_dpi_awareness() -> None:
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:
-        ctypes.windll.user32.SetProcessDPIAware()
-
-
-def find_game_rect():
-    """找到游戏窗口的客户区，返回 (x, y, w, h)。
-
-    窗口最小化时 Windows 会把它挪到 (-32000, -32000) 且尺寸为 0，
-    这时候返回 None —— 绝不能拿这个尺寸去截图，会直接抛异常。
-    （这就是上次崩溃的原因。）
-    """
-    found = []
-
-    def cb(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            title = win32gui.GetWindowText(hwnd)
-            if title and KEYWORD in title.lower():
-                l, t, r, b = win32gui.GetClientRect(hwnd)
-                sx, sy = win32gui.ClientToScreen(hwnd, (l, t))
-                found.append((sx, sy, r - l, b - t))
-        return True
-
-    win32gui.EnumWindows(cb, None)
-    if not found:
-        return None
-
-    rect = max(found, key=lambda r: r[2] * r[3])
-    x, y, w, h = rect
-    if w <= 0 or h <= 0:
-        return None
-    return rect
 
 
 def read_picked() -> list:
@@ -104,10 +66,6 @@ def read_picked() -> list:
     return out
 
 
-def next_shot_path() -> Path:
-    n = len(list(SHOT_DIR.glob("shot_*.png"))) + 1
-    return SHOT_DIR / f"shot_{n:03d}.png"
-
 
 def main():
     limit = float(sys.argv[1]) if len(sys.argv) > 1 else None
@@ -117,7 +75,7 @@ def main():
 
     rect = find_game_rect()
     if rect is None:
-        print(f"没找到标题含 '{KEYWORD}' 的窗口。先把游戏打开。")
+        print(f"没找到标题含 '{WINDOW_KEYWORD}' 的窗口。先把游戏打开。")
         return 1
 
     print("初始化识别器（加载图标 + OCR 模型，几秒钟）...")

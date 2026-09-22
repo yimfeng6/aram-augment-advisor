@@ -1,34 +1,52 @@
-"""步骤 4-a：标定三张卡片的位置。
+"""调试工具：把识别流程找到的三张卡片画出来，看一眼框得准不准。
 
-分辨率锁死在 1920x1080，所以卡片坐标本来是固定的常量。
-但与其靠眼睛量像素，不如让程序自己找出来：
-    · 更准 —— 眼睛量误差十几个像素很正常
-    · 可验证 —— 把结果画出来看一眼就知道对不对
-    · 换截图不用重来
+**主程序已经不用它了。**
 
-做法：卡片边框是浅金色的，在深色背景上非常显眼。
-      灰度 → 二值化 → 找轮廓 → 挑出面积大且是矩形的那些。
+它最早的作用是「标定卡片坐标」，好把坐标写死进代码。后来发现写死坐标
+等于绑定分辨率（窗口从 1920x1080 变成 2000x1125 之后就全废了），
+改成了 recognize.detect_cards() 每帧现找。所以「标定」这件事本身没必要了。
+
+现在的用途只剩排查：
+    · 识别出问题时，确认卡片到底框在哪
+    · 换分辨率或窗口模式后，快速看一眼检测还准不准
+
+跑完会生成 calib_boxes.png，打开看绿框有没有正好框住三张卡片。
 
 运行：
-    python calibrate.py
+    python calibrate.py                  用 shots/ 里最新的一张
+    python calibrate.py shots/shot_003.png   指定一张
 """
 
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-SRC = Path("shot.png")
-OUT_VIS = Path("calib_boxes.png")
+SHOT_DIR = Path("shots")
+OUT_DIR = Path("debug")          # 调试产物统一丢这里，这个目录不进仓库
+OUT_VIS = OUT_DIR / "calib_boxes.png"
 
 # 卡片大概的尺寸范围，用来过滤掉图标、文字这些小块
 MIN_W, MIN_H = 250, 400
 
 
 def main():
-    img = cv2.imread(str(SRC))
+    OUT_DIR.mkdir(exist_ok=True)
+    # 用 shots/ 里最新的一张。也支持手动指定：python calibrate.py shots/shot_003.png
+    if len(sys.argv) > 1:
+        src = Path(sys.argv[1])
+    else:
+        shots = sorted(SHOT_DIR.glob("shot_*.png")) if SHOT_DIR.is_dir() else []
+        if not shots:
+            print(f"{SHOT_DIR}/ 里没有截图。先跑 watch.py 攒几张，或者 capture.py 截一张。")
+            return 1
+        src = shots[-1]
+    print(f"用的样本: {src}")
+
+    img = cv2.imread(str(src))
     if img is None:
-        print(f"读不到 {SRC}，先跑 capture.py")
+        print(f"读不到 {src}")
         return 1
 
     h_img, w_img = img.shape[:2]
@@ -76,11 +94,11 @@ def main():
         # 顺带把「图标区」裁出来单独存 —— 先按卡片上部 35% 估
         icon_h = int(h * 0.35)
         crop = img[y:y + icon_h, x:x + w]
-        cv2.imwrite(f"icon_region_{i}.png", crop)
+        cv2.imwrite(str(OUT_DIR / f"icon_region_{i}.png"), crop)
 
     cv2.imwrite(str(OUT_VIS), vis)
     print(f"\n已保存 {OUT_VIS} 和 icon_region_1~{len(boxes)}.png")
-    print("打开 calib_boxes.png 确认绿框是否正好框住三张卡片。")
+    print(f"打开 {OUT_VIS} 确认绿框是否正好框住三张卡片。")
     return 0
 
 
