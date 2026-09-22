@@ -92,8 +92,23 @@ CREATE TABLE champion_augment (
     FOREIGN KEY (augment_id)  REFERENCES augments(id)
 );
 
+CREATE TABLE champion_augment_combo (
+    champion_id INTEGER NOT NULL,
+    augment_a   INTEGER NOT NULL,   -- 两个符文 id，约定 a < b 方便去重
+    augment_b   INTEGER NOT NULL,
+    win_rate    REAL,               -- 这两个一起选时的胜率
+    delta       REAL,               -- 减去该英雄基线后的收益
+    sample_count INTEGER,
+    pick_rate   REAL,
+    rank        INTEGER,            -- 该英雄内的排名（源数据只给前 10 对）
+
+    PRIMARY KEY (champion_id, augment_a, augment_b),
+    FOREIGN KEY (champion_id) REFERENCES champions(id)
+);
+
 -- 查询几乎永远是「给定英雄，看它的所有符文」，所以按英雄建索引
 CREATE INDEX idx_ca_champion ON champion_augment(champion_id);
+CREATE INDEX idx_cac_champion ON champion_augment_combo(champion_id);
 
 CREATE TABLE meta (
     key   TEXT PRIMARY KEY,
@@ -188,6 +203,38 @@ def insert_details(conn, detail_dir: Path, baselines: dict) -> int:
     return len(rows)
 
 
+def insert_combos(conn, detail_dir: Path, baselines: dict) -> int:
+    """把英雄详情里的 augmentCombinations 拍平成 champion_augment_combo。
+
+    这是「两个符文一起选」的组合胜率，源数据每个英雄只给前 10 对。
+    有了它才能回答「你上一轮选了 X，这一轮选哪个更搭」。
+    """
+    rows = []
+    for path in sorted(detail_dir.glob("*.json")):
+        detail = json.loads(path.read_text(encoding="utf-8"))
+        champion_id = detail["champion"]["id"]
+        base = baselines.get(champion_id, {}).get("winRate")
+
+        for c in detail.get("augmentCombinations", []):
+            ids = sorted(c.get("augmentIds") or [])
+            if len(ids) != 2:
+                continue
+            wr = c.get("winRate")
+            rows.append((
+                champion_id,
+                ids[0], ids[1],
+                wr,
+                None if wr is None or base is None else wr - base,
+                c.get("sampleCount"),
+                c.get("pickRate"),
+                c.get("rank"),
+            ))
+
+    conn.executemany(
+        "INSERT INTO champion_augment_combo VALUES (?,?,?,?,?,?,?,?)", rows)
+    return len(rows)
+
+
 # ==================== 主流程 ====================
 def main():
     if DB.exists():
@@ -205,6 +252,7 @@ def main():
         n_champ = insert_champions(conn, load("champions.json"), baselines)
         n_aug = insert_augments(conn, load("augments.json"))
         n_ca = insert_details(conn, RAW / "champion-details", baselines)
+        n_combo = insert_combos(conn, RAW / "champion-details", baselines)
 
         conn.executemany(
             "INSERT INTO meta VALUES (?,?)",
@@ -217,6 +265,7 @@ def main():
         print(f"champions         {n_champ:>7,} 行")
         print(f"augments          {n_aug:>7,} 行")
         print(f"champion_augment  {n_ca:>7,} 行")
+        print(f"champion_augment_combo  {n_combo:>7,} 行")
         print(f"\n数据库: {DB.resolve()}  ({DB.stat().st_size / 1024:.0f} KB)")
 
         # ---- 自检 1：外键有没有悬空（有的话上面的 commit 早就报错了） ----

@@ -60,6 +60,20 @@ ALPHA_THRESH = 10       # webp alpha 阈值
 # 图标分数相差小于这个值，就认为「并列」，需要 OCR 来区分
 TIE_MARGIN = 0.02
 
+# 是否启用图标匹配 —— 默认关闭。
+#
+# 原本的设计是「图标粗筛 + OCR 精筛」，但量完之后图标这一半根本不成立：
+#
+#     图标第一名就对:  19/93 = 20.4%
+#     即使只看分数 ≥0.8 的那批，也只有 71%
+#
+# 根本原因是 216 个符文里有 24 组共用同一个图标，纯图标匹配原理上就
+# 不可能唯一识别。OCR 单独就已经 93/93，加进来只会往正确结果里掺噪声。
+#
+# 代码留着是为了将来 —— 如果哪天能用上更可靠的特征（比如卡片的稀有度边框
+# 颜色），可以拿它当骨架。平时不要打开：每帧 648 次模板匹配纯属白烧 CPU。
+USE_ICON = False
+
 
 # ==================== 卡片检测（不依赖分辨率） ====================
 def detect_cards(img: np.ndarray) -> list:
@@ -81,11 +95,30 @@ def detect_cards(img: np.ndarray) -> list:
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 只看画面中段：卡片不会贴顶也不会贴底
+    # 只看画面中段：卡片不会贴顶也不会贴底。
+    # 这条横带同时把画面下方的「C」按钮挡在检测范围外 ——
+    # 放宽到 3%~97% 试过，结果闭运算会把卡片和按钮粘成一个 586 像素
+    # 高的怪框，反而让「三个高度要相近」的检查否掉整帧。
     top, bottom = int(h_img * 0.08), int(h_img * 0.78)
     band = gray[top:bottom]
 
     _, mask = cv2.threshold(band, 110, 255, cv2.THRESH_BINARY)
+
+    # 开运算：先腐蚀掉细的亮结构再膨胀回来。
+    #
+    # 用途是滤掉 JPEG 压缩的振铃噪点。高对比边界（比如涂黑的区域旁边）
+    # 会产生一条条细亮线，闭运算把它们连成横贯画面的亮带，
+    # 于是三张卡片被粘成一块，检测全灭。
+    # 实测：不加这一步，JPEG 存过的测试样本 31 张只过 28 张；
+    # 加上之后 31/31，原始截图也仍是 31/31。
+    # 卡片边框约 5 像素宽，开运算的 3x3 核不会伤到它。
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+    # 闭运算把边框上的断缝连起来。
+    #
+    # 试过改成「横长竖短」的核（25x3），想避免纵向粘连 —— 结果更糟：
+    # 横向膨胀约 50 像素，而三张卡片只隔 75 像素，三张直接粘成一块，
+    # 31 张截图一张都过不了。正方形核是验证过的配置，别乱动。
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE,
                             np.ones((9, 9), np.uint8), iterations=2)
 
@@ -94,7 +127,13 @@ def detect_cards(img: np.ndarray) -> list:
     boxes = []
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
-        # 卡片大约占画面宽度的 1/6、高度的 1/2，用这个范围滤掉别的亮块
+        # 卡片大约占画面宽度的 1/6、高度的 1/2，用这个范围滤掉别的亮块。
+        # 这个过滤只是粗筛，真正把关的是后面的内容检查
+        # （card_looks_like_augment）。
+        #
+        # 注意：这几个比例是绑「完整截图」的。试过放宽它们去适配
+        # 裁剪过的画面，结果连带把闭运算的核也改了，越改越糟。
+        # 测试样本改成「涂黑敏感区域」而不是「裁剪」，几何就和线上一致了。
         if not (w_img * 0.10 < w < w_img * 0.25):
             continue
         if not (h_img * 0.30 < h < h_img * 0.70):
@@ -186,6 +225,30 @@ class Card:
 
 
 # ==================== 图像工具 ====================
+def imread(path):
+    """读图片，能处理含中文的路径。
+
+    OpenCV 在 Windows 上按 ANSI 码页解释路径，`cv2.imread` 遇到中文路径
+    会返回 None，报 "can't open/read file"，看着像文件被删了。
+    先读成字节再用 imdecode 就没这个问题。
+
+    主程序用的是相对路径（纯 ASCII），不受影响；这个是给测试脚本用的，
+    它们用的是含用户名的绝对路径。
+    """
+    data = np.fromfile(str(path), dtype=np.uint8)
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+
+def imwrite(path, img, params=None) -> bool:
+    """写图片，同样能处理含中文的路径。"""
+    ok, buf = cv2.imencode(Path(path).suffix, img, params or [])
+    if ok:
+        buf.tofile(str(path))
+    return ok
+
+
 def _is_skill_badge(text: str) -> bool:
     """判断这一行是不是技能角标（[Q] / [W] / [E] / [R]）。
 
@@ -382,14 +445,17 @@ class Recognizer:
             else:
                 text_ranked, text_best, text_sim = [], None, 0.0
 
-            # ---- 信号二：图标匹配 ----
-            icon = self._extract_icon(img, box)
-            if icon is None:
-                icon_best, icon_score, group = None, 0.0, []
+            # ---- 信号二：图标匹配（默认关闭，见 USE_ICON 的说明）----
+            if USE_ICON:
+                icon = self._extract_icon(img, box)
+                if icon is None:
+                    icon_best, icon_score, group = None, 0.0, []
+                else:
+                    ranked = self._match_icon(icon)
+                    icon_best, icon_score = ranked[0]
+                    group = [aid for aid, s in ranked if icon_score - s <= TIE_MARGIN]
             else:
-                ranked = self._match_icon(icon)
-                icon_best, icon_score = ranked[0]
-                group = [aid for aid, s in ranked if icon_score - s <= TIE_MARGIN]
+                icon_best, icon_score, group = None, 0.0, []
 
             # ---- 决策 ----
             #
@@ -409,10 +475,9 @@ class Recognizer:
             # 图标匹配在卡片框不准时表现很差（实测 top1 只有 0.27~0.41，
             # 正常应该是 0.65~0.85）。等卡片框稳定下来再考虑重新启用它。
             if text_best is None:
-                if icon_best is not None:
-                    chosen, method = icon_best, "OCR 没读到文字，退回图标"
-                else:
-                    chosen, method = None, "两个信号都失败"
+                # OCR 一行字都没读出来。以前这里是「退回图标匹配」，
+                # 但图标准确率只有 20%，退回等于瞎猜，所以现在直接认输。
+                chosen, method = None, "OCR 没读到文字"
             elif text_sim >= 0.99:
                 chosen, method = text_best, "OCR 精确命中词表"
             elif text_sim >= 0.6:

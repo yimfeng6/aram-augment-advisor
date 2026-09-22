@@ -11,8 +11,15 @@ icons/
 # ============ 游戏截图 ============
 # 体积大（几十 MB），而且画面里有召唤师 ID（自己的和同局玩家的）
 shots/
-tests/
 shot.png
+
+# 只忽略 tests/negative/ 里的原图 —— tests/fixtures/ 是涂黑过的测试样本，
+# 要进仓库。
+#
+# 这里踩过一次：一开始写的是 `tests/`，结果整个测试集（fixtures、labels.json、
+# make_fixtures.py）全被忽略，提交完发现仓库里根本没有测试。
+# 忽略一个目录时要想清楚：是"这个目录都不要"，还是"只要里面的一部分"。
+tests/negative/
 
 # ============ 调试产物 ============
 debug/
@@ -31,3 +38,7 @@ env/
 .idea/
 Thumbs.db
 desktop.ini
+
+# 手动记录的已选符文（个人状态，不该进仓库）
+picked.txt
+choice.txt

@@ -56,6 +56,8 @@ class Suggestion:
     tier: str | None = None
     stages: str = ""
     notes: list = field(default_factory=list)
+    # 和「已选符文」的组合情况：(搭档 id, 组合胜率, 组合收益, 样本数)
+    combo: tuple | None = None
 
 
 def lookup_champion(slug: str):
@@ -70,7 +72,37 @@ def lookup_champion(slug: str):
         conn.close()
 
 
-def advise(champion_slug: str, augment_ids: list, stage: int | None = None):
+def _combo_lookup(conn, champion_id: int, candidates: list, picked: list) -> dict:
+    """查每个候选和「已选符文」的组合表现。
+
+    返回 {候选 id: (搭档 id, 组合胜率, 组合收益, 样本数)}。
+
+    注意源数据每个英雄只给前 10 对组合，所以这里的覆盖是不全的 ——
+    查不到不代表搭不上，只代表"不在该英雄最热门的 10 对里"。
+    """
+    if not picked:
+        return {}
+
+    out = {}
+    for aid in candidates:
+        best = None
+        for p in picked:
+            a, b = sorted((aid, p))
+            row = conn.execute(
+                "SELECT win_rate, delta, sample_count FROM champion_augment_combo "
+                "WHERE champion_id = ? AND augment_a = ? AND augment_b = ?",
+                (champion_id, a, b),
+            ).fetchone()
+            if row and row[0] is not None:
+                if best is None or (row[1] or 0) > (best[2] or 0):
+                    best = (p, row[0], row[1], row[2])
+        if best:
+            out[aid] = best
+    return out
+
+
+def advise(champion_slug: str, augment_ids: list, stage: int | None = None,
+           picked: list | None = None):
     """查出这三个符文在该英雄身上的表现，按胜率排序。
 
     返回 (英雄名, [Suggestion...])；英雄找不到时返回 (None, 错误字符串)。
@@ -133,9 +165,36 @@ def advise(champion_slug: str, augment_ids: list, stage: int | None = None):
 
         suggestions.append(s)
 
-    # 没有数据的排最后，其余按选定的指标降序
+    # ---- 组合：如果知道已经选过哪些符文，把「和它们搭得上」的往前提 ----
+    #
+    # 排序规则：
+    #   1. 和已选符文是「已知高胜率组合」的排前面
+    #   2. 同组内按胜率排
+    #
+    # 为什么不把组合胜率直接混进总排序：组合胜率是两个符文一起选时的数字，
+    # 和单个符文的胜率不是一个量纲，硬加在一起没有依据。
+    # 所以只用它做「有没有已知好搭档」这个粗判断，明细照实显示，由人来定。
+    combo_hits = {}
+    if picked:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            cid = conn.execute("SELECT id FROM champions WHERE slug = ?",
+                               (champion_slug.lower(),)).fetchone()[0]
+            ids = [s.augment_id for s in suggestions if s.augment_id]
+            combo_hits = _combo_lookup(conn, cid, ids, picked)
+        finally:
+            conn.close()
+
+    for s in suggestions:
+        if s.augment_id in combo_hits:
+            s.combo = combo_hits[s.augment_id]
+
     key = (lambda s: s.delta) if SORT_KEY == "delta" else (lambda s: s.win_rate)
-    suggestions.sort(key=lambda s: (key(s) is None, -(key(s) or 0)))
+    suggestions.sort(key=lambda s: (
+        s.augment_id not in combo_hits,      # 有已知好搭档的排前面
+        key(s) is None,
+        -(key(s) or 0),
+    ))
 
     return champion_name, suggestions
 
@@ -168,10 +227,26 @@ def format_advice(champion_name: str, suggestions: list, level: int | None = Non
                 f"  {i}. {s.name:<16} 胜率 {s.win_rate:.1%}"
                 f"   比平均 {delta}   （符文全局 {s.global_win_rate:.1%}）"
             )
+        if s.combo:
+            partner_id, cwr, cdelta, csc = s.combo
+            partner = augment_name(partner_id)
+            lines.append(f"       ⚑ 和已选的「{partner}」是热门组合："
+                         f"组合胜率 {cwr:.1%}（样本 {csc:,}）")
         for n in s.notes:
             lines.append(f"       ⚠ {n}")
 
     return "\n".join(lines)
+
+
+def augment_name(augment_id: int) -> str:
+    """按 id 查符文名。只用于显示组合的搭档是谁。"""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        row = conn.execute("SELECT name FROM augments WHERE id = ?",
+                           (augment_id,)).fetchone()
+        return row[0] if row else f"id={augment_id}"
+    finally:
+        conn.close()
 
 
 def stage_from_level(level: int | None) -> int | None:

@@ -30,6 +30,7 @@ import liveapi
 from recognize import Recognizer
 
 SHOT_DIR = Path("shots")
+PICKED_FILE = Path("picked.txt")     # 手动记录已选的符文 id，见 read_picked()
 KEYWORD = "league"
 
 POLL = 1.0          # 每隔多久看一次屏幕（秒）
@@ -75,6 +76,32 @@ def find_game_rect():
     if w <= 0 or h <= 0:
         return None
     return rect
+
+
+def read_picked() -> list:
+    """读 picked.txt —— 里面是人手动记下的「已经选过的符文 id」。
+
+    为什么要靠人记，不能自动识别：
+        游戏画面上**不显示**你已经选了哪些符文，Riot 的本地数据接口也不
+        暴露这个信息（只有英雄、等级、装备）。查过了，确实没有。
+        截图里卡片下方那排小图标是装备/锻造器，不是符文 —— 放大看过。
+
+    所以这里留一个最简单的输入方式：每选一个符文，往 picked.txt 里加一个
+    id（逗号或换行分隔都行）。文件不存在就当没选过。
+
+    如果以后有人能识别出画面上的已选符文，只要改这一个函数。
+    """
+    if not PICKED_FILE.exists():
+        return []
+    try:
+        text = PICKED_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for tok in text.replace(",", " ").replace("，", " ").split():
+        if tok.strip().isdigit():
+            out.append(int(tok.strip()))
+    return out
 
 
 def next_shot_path() -> Path:
@@ -192,8 +219,14 @@ def main():
                 continue
 
             stage = advise.stage_from_level(me.get("level"))
+            picked = read_picked()
+            if picked:
+                names = "、".join(advise.augment_name(a) for a in picked)
+                print(f"    （已记录选了：{names}）")
+
             champion_name, suggestions = advise.advise(
-                me["slug"], [c.augment_id for c in cards], stage=stage)
+                me["slug"], [c.augment_id for c in cards],
+                stage=stage, picked=picked)
 
             print()
             if champion_name is None:
