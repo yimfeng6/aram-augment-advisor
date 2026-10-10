@@ -262,7 +262,7 @@ def main():
         print(f"  {i}. [{h['score']:.4f}] {h['name']}")
         print(f"         {h['text'][:58]}...")
 
-    print(f"\n--- 模型基于以上资料的回答（RAG 的 G）---")
+    print("\n--- 模型基于以上资料的回答（RAG 的 G）---")
     print(answer(query, hits))
     return 0
 

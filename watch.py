@@ -22,48 +22,20 @@
 
 import sys
 import time
-from pathlib import Path
 
 import cv2
 import numpy as np
 
 import advise
 import liveapi
+from advise import read_picked
 from recognize import Recognizer
 from wincap import (MSS_CLASS, WINDOW_KEYWORD, enable_dpi_awareness,
                     find_game_rect, next_shot_path)
 
-PICKED_FILE = Path("picked.txt")     # 手动记录已选的符文 id，见 read_picked()
 
 POLL = 1.0          # 每隔多久看一次屏幕（秒）
 ABSENT_RESET = 5    # 连续这么多帧看不到卡片，就认为离开了这个界面
-
-
-
-def read_picked() -> list:
-    """读 picked.txt —— 里面是人手动记下的「已经选过的符文 id」。
-
-    为什么要靠人记，不能自动识别：
-        游戏画面上**不显示**你已经选了哪些符文，Riot 的本地数据接口也不
-        暴露这个信息（只有英雄、等级、装备）。查过了，确实没有。
-        截图里卡片下方那排小图标是装备/锻造器，不是符文 —— 放大看过。
-
-    所以这里留一个最简单的输入方式：每选一个符文，往 picked.txt 里加一个
-    id（逗号或换行分隔都行）。文件不存在就当没选过。
-
-    如果以后有人能识别出画面上的已选符文，只要改这一个函数。
-    """
-    if not PICKED_FILE.exists():
-        return []
-    try:
-        text = PICKED_FILE.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    out = []
-    for tok in text.replace(",", " ").replace("，", " ").split():
-        if tok.strip().isdigit():
-            out.append(int(tok.strip()))
-    return out
 
 
 

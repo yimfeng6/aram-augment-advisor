@@ -38,9 +38,39 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DB_PATH = Path("aramkit.db")
+PICKED_FILE = Path("picked.txt")
 
 SORT_KEY = "win_rate"       # "win_rate" 或 "delta"
 MIN_SAMPLE = 1000           # 低于这个样本数就标注"样本少"
+
+
+def read_picked() -> list:
+    """读 picked.txt —— 人手动记下的「已经选过的符文 id」。
+
+    为什么要靠人记，不能自动识别：
+        游戏画面上**不显示**你已经选了哪些符文，Riot 的本地数据接口也不
+        暴露这个信息（只有英雄、等级、装备）。截图里卡片下方那排小图标
+        是装备/锻造器，不是符文 —— 放大看过。
+
+    最简单可行的输入方式：每选一个符文，往 picked.txt 里加一个 id
+    （逗号或换行分隔都行）。文件不存在就当没选过。
+
+    watch.py 和 review.py 共用这一份。
+    之前两边各写了一份，结果 watch 那边加了 OSError 兜底、review 那边没有，
+    同一个函数出现两种行为 —— 重复代码最要命的地方就在这：
+    改了一处，另一处还是旧的，而且不会报错。
+    """
+    if not PICKED_FILE.exists():
+        return []
+    try:
+        text = PICKED_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for tok in text.replace(",", " ").replace("，", " ").split():
+        if tok.strip().isdigit():
+            out.append(int(tok.strip()))
+    return out
 
 
 @dataclass

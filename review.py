@@ -45,9 +45,9 @@ from pathlib import Path
 from openai import OpenAI
 
 import advise
+from advise import read_picked
 
 DB_PATH = Path("aramkit.db")
-PICKED_FILE = Path("picked.txt")
 
 # MiMo 的 OpenAI 兼容端点；密钥类型是 sk- 开头时用这个
 BASE_URL = os.environ.get("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1")
@@ -110,7 +110,7 @@ def gather_facts(champion_slug: str, picked_ids: list) -> dict | None:
 
     # 这一局里最好/最差的pick —— 也是程序算的
     ranked = sorted(picks, key=lambda p: -(p["delta"] or -9))
-    facts = {
+    return {
         "champion": cname,
         "baseline": baseline,
         "champion_sample": csample,
@@ -123,7 +123,6 @@ def gather_facts(champion_slug: str, picked_ids: list) -> dict | None:
         "worst_pick": ranked[-1],
         "avg_delta": sum(p["delta"] or 0 for p in picks) / len(picks),
     }
-    return facts
 
 
 # ==================== 第二步：把事实组装成提示词 ====================
@@ -223,18 +222,6 @@ def ask_model(prompt: str, system: str = SYSTEM_PROMPT, retries: int = 2) -> str
 
 
 # ==================== 主流程 ====================
-def read_picked() -> list:
-    """从 picked.txt 读已选的符文 id（和 watch.py 共用同一个文件）。"""
-    if not PICKED_FILE.exists():
-        return []
-    text = PICKED_FILE.read_text(encoding="utf-8")
-    out = []
-    for tok in text.replace(",", " ").replace("，", " ").split():
-        if tok.strip().isdigit():
-            out.append(int(tok.strip()))
-    return out
-
-
 def review(champion_slug: str, picked_ids: list) -> str:
     facts = gather_facts(champion_slug, picked_ids)
     if facts is None:
