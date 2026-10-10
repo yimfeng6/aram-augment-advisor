@@ -42,3 +42,6 @@ desktop.ini
 # 手动记录的已选符文（个人状态，不该进仓库）
 picked.txt
 choice.txt
+
+# 复盘记录：每次跑都会变的生成产物，而且是个人的
+reviews.md

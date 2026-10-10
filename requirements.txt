@@ -17,3 +17,9 @@ rapidocr-onnxruntime>=1.2
 # 大模型 API：赛后复盘用（review.py）
 # 用的是 OpenAI 兼容接口，换 base_url 就能切到 DeepSeek / 通义 / GLM 等
 openai>=1.30
+
+# 语义检索（rag.py）
+# sentence-transformers 第一次用会从 HuggingFace 下模型，
+# 国内要加镜像：set HF_ENDPOINT=https://hf-mirror.com
+scikit-learn>=1.3
+sentence-transformers>=2.5

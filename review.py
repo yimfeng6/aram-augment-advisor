@@ -253,13 +253,34 @@ def review(champion_slug: str, picked_ids: list) -> str:
     return head + "\n" + body
 
 
+def save_review(champion_name: str, text: str, path: str = "reviews.md") -> None:
+    """把一次复盘追加到 reviews.md。"""
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # 用 markdown 的二级标题分节，每次复盘一段
+    block = f"## {today} {champion_name}\n\n{text}\n\n---\n\n"
+
+    # mode="a" 是追加；用 "w" 会把之前的内容全冲掉
+    # encoding 必须显式写，否则 Windows 下中文乱码（你栽过一次）
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(block)
+
+    print(f"\n（已追加到 {path}）")
+
+
 def main():
     args = sys.argv[1:]
+
+    save = "--save" in args
+    if save:
+        args.remove("--save")
 
     champion = args[0] if args else os.environ.get("CHAMPION_SLUG", "")
     if not champion:
         print("用法：python review.py <英雄slug> [符文id,符文id,...]")
         print("      python review.py masteryi 1047,1328,1092")
+        print("      python review.py masteryi 1047 --save")
         print("      （不给符文就用 picked.txt 里的）")
         return 1
 
@@ -273,9 +294,17 @@ def main():
         return 1
 
     print(f"英雄：{champion}    已选符文 id：{picked}\n")
-    print(review(champion, picked))
+    result = review(champion, picked)    # 先接住返回值
+    print(result)
+
+
+    if save:
+        info = advise.lookup_champion(champion)  # 传 slug 进去
+        name = info[1] if info else champion  # 取中文名；查不到就用 slug 兜底
+        save_review(name, result)
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
