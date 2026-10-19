@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>符文助手 · 海克斯大乱斗</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">⚔</span>
+    <div>
+      <h1>符文助手</h1>
+      <p>海克斯大乱斗 · 选符文 / 查符文 / 问 Agent</p>
+    </div>
+  </div>
+  <div class="status" id="status">连接中…</div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="advise">① 选符文</button>
+  <button class="tab" data-tab="rag">② 自然语言查</button>
+  <button class="tab" data-tab="agent">③ 问 Agent</button>
+</nav>
+
+<main>
+
+  <!-- ==================== 选符文 ==================== -->
+  <section class="panel active" id="panel-advise">
+    <div class="card">
+      <div class="row">
+        <label class="field-label">英雄</label>
+        <div class="picker-wrap grow" id="champion-picker"></div>
+        <label class="field-label">等级</label>
+        <input class="num" id="level" type="number" min="1" max="18" placeholder="可选">
+        <button class="ghost" id="advise-example">填入示例</button>
+      </div>
+
+      <div class="row slots">
+        <div class="slot">
+          <label class="field-label">候选符文 1</label>
+          <div class="picker-wrap" id="slot-0"></div>
+        </div>
+        <div class="slot">
+          <label class="field-label">候选符文 2</label>
+          <div class="picker-wrap" id="slot-1"></div>
+        </div>
+        <div class="slot">
+          <label class="field-label">候选符文 3</label>
+          <div class="picker-wrap" id="slot-2"></div>
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary>已选符文（可选，用来查组合加成）</summary>
+        <p class="hint">
+          游戏画面不显示已选符文，Riot 的本地接口也不暴露，所以只能手动告诉它。
+          每选一个就加一个，推荐会优先提「和它搭得上」的。
+        </p>
+        <div class="picker-wrap" id="picked-picker"></div>
+        <div class="chips" id="picked-chips"></div>
+      </details>
+
+      <div class="row">
+        <button class="primary" id="advise-btn">生成建议</button>
+        <span class="hint">纯本地查询，不调用大模型。</span>
+      </div>
+    </div>
+    <div class="result" id="advise-result"></div>
+  </section>
+
+  <!-- ==================== 自然语言查 ==================== -->
+  <section class="panel" id="panel-rag">
+    <div class="card">
+      <div class="row">
+        <input class="text grow" id="rag-query" type="text"
+               placeholder="比如：能回血的符文 / 加攻速的">
+        <button class="primary" id="rag-btn">查询</button>
+        <button class="ghost" id="rag-example">填入示例</button>
+      </div>
+      <div class="row options">
+        <label class="radio"><input type="radio" name="rag-mode" value="semantic" checked> 语义向量</label>
+        <label class="radio"><input type="radio" name="rag-mode" value="tfidf"> TF-IDF（字面）</label>
+        <label class="check"><input type="checkbox" id="rag-rewrite" checked> 查询改写</label>
+        <span class="hint">语义懂同义词；TF-IDF 只认字面重合，可以对比着看。</span>
+      </div>
+    </div>
+    <div class="result" id="rag-result"></div>
+  </section>
+
+  <!-- ==================== Agent ==================== -->
+  <section class="panel" id="panel-agent">
+    <div class="card">
+      <div class="row">
+        <input class="text grow" id="agent-question" type="text"
+               placeholder="比如：盖伦和剑圣谁更适合秘术冲拳">
+        <button class="primary" id="agent-btn">提问</button>
+        <button class="ghost" id="agent-example">填入示例</button>
+      </div>
+      <p class="hint">
+        模型自己决定调哪个工具、传什么参数 —— 下面的调用记录是真发生的，
+        代码里没有写死任何查询步骤。
+      </p>
+    </div>
+    <div class="result" id="agent-result"></div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

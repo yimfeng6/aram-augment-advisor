@@ -53,6 +53,21 @@ MODEL = os.environ.get("MIMO_MODEL", "mimo-v2.6-pro")
 # 国内要加镜像：HF_ENDPOINT=https://hf-mirror.com
 EMBED_MODEL = "BAAI/bge-small-zh-v1.5"
 
+# ---- HuggingFace 联网策略 ----
+#
+# 直连 huggingface.co 在国内会超时：每次 HEAD 等二十秒，重试几次就两分钟，
+# 而且超时之后 sentence-transformers 会走进一条直接抛 ValueError 的加载路径
+# （报「Unrecognized processing class」，看起来像模型坏了，其实是网络问题）。
+#
+# 已经缓存过模型的机器直接离线加载，不发任何网络请求；
+# 没缓存才设镜像地址去下载。
+_hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
+if (_hf_home / "hub" / "models--BAAI--bge-small-zh-v1.5").exists():
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+else:
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 # bge 系列模型建议给「查询」加一个指令前缀，检索效果更好。
 # 注意：只加在查询上，文档不加 —— 这是模型训练时就定好的用法。
 BGE_QUERY_PREFIX = "为这个句子生成表示以用于检索相关文章："

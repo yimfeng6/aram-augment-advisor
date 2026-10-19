@@ -301,7 +301,12 @@ SYSTEM_PROMPT = """你在帮《英雄联盟》海克斯大乱斗的玩家解答�
 
 
 # ==================== Agent Loop ====================
-def run(question: str, verbose: bool = True) -> str:
+def run(question: str, verbose: bool = True, trace: list | None = None) -> str:
+    """跑一次问答。
+
+    trace 不为 None 时，把每次工具调用记进去 —— Web 界面靠它把
+    「模型自己决定了什么」画出来。命令行模式不传，行为完全不变。
+    """
     api_key = os.environ.get("MIMO_API_KEY")
     if not api_key:
         raise RuntimeError("没读到 MIMO_API_KEY")
@@ -358,6 +363,10 @@ def run(question: str, verbose: bool = True) -> str:
             if verbose:
                 preview = json.dumps(result, ensure_ascii=False)
                 print(f"           → {preview[:100]}")
+
+            if trace is not None:
+                trace.append({"step": step, "tool": name,
+                              "args": args, "result": result})
 
             # 工具结果必须以 role="tool" 回传，并带上对应的 tool_call_id
             messages.append({
