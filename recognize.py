@@ -238,6 +238,8 @@ class Card:
     ocr_sim: float       # OCR 文字和最终答案的名字有多像
     ocr_best: int        # OCR 在词表里找到的最像的名字
     duplicate: bool = False   # 本帧内和其他卡片撞了 = 至少一个错了
+    box: tuple | None = None  # 卡片在截图里的位置 (x, y, w, h)，给浮层定位用
+    confident: bool = False   # 这次结果够不够格算「认出来了」（见置信度门槛）
 
 
 # ==================== 图像工具 ====================
@@ -458,8 +460,10 @@ class Recognizer:
                                      key=lambda aid: -self._sim(ocr_text, self.names[aid]))
                 text_best = text_ranked[0]
                 text_sim = self._sim(ocr_text, self.names[text_best])
+                runner_up = (self._sim(ocr_text, self.names[text_ranked[1]])
+                             if len(text_ranked) > 1 else 0.0)
             else:
-                text_ranked, text_best, text_sim = [], None, 0.0
+                text_ranked, text_best, text_sim, runner_up = [], None, 0.0, 0.0
 
             # ---- 信号二：图标匹配（默认关闭，见 USE_ICON 的说明）----
             if USE_ICON:
@@ -499,6 +503,16 @@ class Recognizer:
             elif text_sim >= 0.6:
                 # 典型例子：「贪欲束缚」→「贪婪束缚」（婪/欲 形近，OCR 常读错）
                 chosen, method = text_best, "OCR 模糊命中词表"
+            elif text_sim >= 0.5 and text_sim - runner_up >= 0.2:
+                # 0.5 看着很低，但关键不是绝对值，是「领先第二名多少」。
+                #
+                # 实例：「喂呜喂呜」被读成「喂鸣喂鸣」（呜/鸣 形近），
+                # 4 个字错 2 个，相似度正好 0.5；而第二名只有 0.25。
+                # 这是唯一的明显候选，扔掉太可惜。
+                #
+                # 反过来，真读成乱七八糟的字时，一堆候选的分数都差不多低，
+                # 名次之间拉不开差距 —— 那种仍然拒绝。
+                chosen, method = text_best, "OCR 近似命中（唯一明显候选）"
             else:
                 # 读出来的东西和词表里任何名字都不像 —— 那就别猜了。
                 #
@@ -519,6 +533,8 @@ class Recognizer:
                 ocr_text=ocr_text,
                 ocr_sim=text_sim,
                 ocr_best=text_best,
+                box=box,
+                confident=chosen is not None,
             ))
 
         # 置信度门槛：三张里至少两张认得比较有把握，否则这多半根本不是
@@ -530,8 +546,11 @@ class Recognizer:
         # 加一份胜率表，完全不像出错的样子。
         #
         # 宁可什么都不输出，也不要输出一个看起来很像答案的错误答案。
-        confident = sum(1 for c in cards
-                        if c.augment_id is not None and c.ocr_sim >= 0.6)
+        #
+        # 注意：这里数的是 c.confident，不是「ocr_sim >= 0.6」。
+        # 近似命中那条 0.5 的规则也要算数，否则好不容易认出来的卡
+        # 会在最后这关被重新扔掉。
+        confident = sum(1 for c in cards if c.confident)
         if confident < 2:
             return []
 
